@@ -1,0 +1,16 @@
+# Python temporary files and bytecode
+__pycache__/
+*.pyc
+
+# PyInstaller build artifacts
+/build/
+/dist/
+*.spec
+
+# Database files (prevents local test databases from being uploaded)
+*.db
+*.db-journal*
+
+# IDE and editor configuration folders
+.vscode/
+.idea/

