@@ -53,8 +53,9 @@ class DatabaseManager:
         self._execute("""CREATE TABLE IF NOT EXISTS vault (session_id TEXT, module_name TEXT, data JSONB, PRIMARY KEY (session_id, module_name), FOREIGN KEY (session_id) REFERENCES sessions(session_id) ON DELETE CASCADE);""")
 
     def sanitize_data_for_user(self, username):
-        """Correctly deletes only the data (sessions and vault), leaving the user account."""
+        """Correctly deletes ONLY the data (sessions, vault), leaving the user account itself."""
         try:
+            # Deleting from sessions will cascade to delete vault data for those sessions
             self._execute("DELETE FROM sessions WHERE owner_username = %s", (username,))
             return True
         except psycopg2.Error as e:
@@ -62,7 +63,7 @@ class DatabaseManager:
             return False
             
     def delete_user_account(self, username):
-        """Correctly deletes the entire user account and all their data via cascading delete."""
+        """Deletes the entire user account and all their data via cascading delete in the DB schema."""
         try:
             self._execute("DELETE FROM users WHERE username = %s", (username,))
             return True
@@ -84,11 +85,17 @@ class DatabaseManager:
         self._execute("UPDATE users SET last_login = %s WHERE username = %s", (datetime.utcnow(), username))
 
     def find_and_delete_inactive_users(self):
+        logging.info(f"Running scheduled task to delete users inactive for over {INACTIVITY_PERIOD_DAYS} days...")
         cutoff_date = datetime.utcnow() - timedelta(days=INACTIVITY_PERIOD_DAYS)
         inactive_users_rows = self._execute("SELECT username FROM users WHERE last_login IS NOT NULL AND last_login < %s", (cutoff_date,), fetch='all')
-        if not inactive_users_rows: return
+        if not inactive_users_rows:
+            logging.info("No inactive users found.")
+            return
         for row in inactive_users_rows:
-            self.delete_user_account(row[0])
+            username = row[0]
+            logging.warning(f"Deleting user '{username}' due to inactivity...")
+            self.delete_user_account(username) # Correctly calls the full account deletion
+            logging.warning(f"Successfully deleted user '{username}'.")
 
     def create_or_update_session(self, session_id, owner_username, metadata=None):
         query = "INSERT INTO sessions (session_id, owner_username, metadata) VALUES (%s, %s, %s) ON CONFLICT (session_id) DO UPDATE SET metadata = EXCLUDED.metadata WHERE sessions.metadata IS DISTINCT FROM EXCLUDED.metadata;"
