@@ -16,33 +16,32 @@ class ApiClient:
         print(f"[API Client] Communication line set to: {self.base_url}")
 
     def _request(self, method, endpoint, **kwargs):
-        # --- NEW DEBUGGING LOGIC ---
-        # For auth actions, ONLY try line 1 for this test
+        # --- PRODUCTION LOGIC ---
+        # For auth actions, try each line until a definitive success or failure is found
         if endpoint in ['/auth/login', '/auth/register', '/auth/delete']:
+            for i in range(1, 11):
+                url = RELAY_URL_FORMAT.format(i) + endpoint
+                print(f"[API DEBUG] Attempting {method} request to {url}")
+                try:
+                    response = self.session.request(method, url, timeout=5, **kwargs)
+                    # A response code less than 500 (server error) is a definitive answer
+                    if response.status_code < 500:
+                        print(f"[API DEBUG] Received definitive response from {url}: {response.status_code}")
+                        try:
+                            # Try to parse and return JSON
+                            return response.json()
+                        except json.JSONDecodeError:
+                            # If it's not JSON, it's an error (like a 404 HTML page)
+                            print(f"[API FATAL] Server returned non-JSON response. Raw text: {response.text}")
+                            return {"success": False, "error": f"Server error on line {i}: Not a valid JSON response."}
+                except requests.exceptions.RequestException as e:
+                    print(f"[API DEBUG] Connection error on line {i}: {e}")
+                    continue # Try the next line
             
-            # --- START OF MODIFIED CODE ---
-            # We are hardcoding this to ONLY use line 1 for our test.
-            target_line_number = 1
-            url = RELAY_URL_FORMAT.format(target_line_number) + endpoint
-            print(f"[API DEBUG] TARGETING SINGLE LINE: Attempting {method} request to {url}")
-            
-            try:
-                response = self.session.request(method, url, timeout=10, **kwargs)
-                print(f"[API DEBUG] Received response from {url}: {response.status_code}")
-                
-                # Check if the response has content before trying to parse JSON
-                if not response.text:
-                    print(f"[API FATAL] Server returned an empty response.")
-                    return {"success": False, "error": f"Server error on line {target_line_number}: Empty response."}
-
-                return response.json()
-
-            except requests.exceptions.RequestException as e:
-                print(f"[API DEBUG] Connection error on line {target_line_number}: {e}")
-                self.main_window.statusBar().showMessage(f"API Error: Could not connect to C2 line {target_line_number}.", 5000)
-                return None
-            # --- END OF MODIFIED CODE ---
-
+            # If the loop finishes without a definitive answer, all lines failed to connect
+            self.main_window.statusBar().showMessage("API Error: Could not connect to any C2 line.", 5000)
+            return None
+        
         # For regular C2 traffic to a specific line
         if not self.base_url:
             self.main_window.statusBar().showMessage("API Error: Not logged in.", 5000)
