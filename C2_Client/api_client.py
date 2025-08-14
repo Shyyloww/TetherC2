@@ -1,50 +1,48 @@
-# C2_Client/api_client.py (Full file with enhanced debugging)
+# C2_Client/api_client.py
 import requests
 import json
+import logging
 from config import RELAY_URL_FORMAT
 
 class ApiClient:
     def __init__(self, main_window):
         self.main_window = main_window
         self.session = requests.Session()
-        self.base_url = None
+        self.base_url = None 
         self.line_number = None
 
     def set_line(self, line_number):
         self.line_number = line_number
         self.base_url = RELAY_URL_FORMAT.format(line_number)
-        print(f"[API Client] Communication line set to: {self.base_url}")
+        logging.info(f"[API Client] Communication line set to: {self.base_url}")
 
     def _request(self, method, endpoint, **kwargs):
-        # --- PRODUCTION LOGIC ---
-        # For auth actions, try each line until a definitive success or failure is found
         if endpoint in ['/auth/login', '/auth/register', '/auth/delete']:
             for i in range(1, 11):
                 url = RELAY_URL_FORMAT.format(i) + endpoint
-                print(f"[API DEBUG] Attempting {method} request to {url}")
+                logging.debug(f"[API] Attempting {method} request to {url}")
                 try:
-                    response = self.session.request(method, url, timeout=5, **kwargs)
-                    # A response code less than 500 (server error) is a definitive answer
+                    # MODIFIED: Timeout increased to 45 seconds for auth requests
+                    # This allows enough time for a free Render service to spin up from sleep.
+                    response = self.session.request(method, url, timeout=45, **kwargs)
+                    
                     if response.status_code < 500:
-                        print(f"[API DEBUG] Received definitive response from {url}: {response.status_code}")
+                        logging.debug(f"[API] Received definitive response from {url}: {response.status_code}")
                         try:
-                            # Try to parse and return JSON
                             return response.json()
                         except json.JSONDecodeError:
-                            # If it's not JSON, it's an error (like a 404 HTML page)
-                            print(f"[API FATAL] Server returned non-JSON response. Raw text: {response.text}")
+                            logging.critical(f"[API FATAL] Server returned non-JSON response from {url}. Raw text: {response.text}")
                             return {"success": False, "error": f"Server error on line {i}: Not a valid JSON response."}
                 except requests.exceptions.RequestException as e:
-                    print(f"[API DEBUG] Connection error on line {i}: {e}")
-                    continue # Try the next line
+                    logging.warning(f"[API] Connection error on line {i}: {e}")
+                    continue
             
-            # If the loop finishes without a definitive answer, all lines failed to connect
-            self.main_window.statusBar().showMessage("API Error: Could not connect to any C2 line.", 5000)
+            logging.error("API Error: Could not connect to any C2 line.")
             return None
         
-        # For regular C2 traffic to a specific line
+        # Requests for an active session can have a shorter timeout
         if not self.base_url:
-            self.main_window.statusBar().showMessage("API Error: Not logged in.", 5000)
+            logging.error("API Error: Not logged in or C2 line not set.")
             return None
             
         try:
@@ -59,7 +57,7 @@ class ApiClient:
                     error_details = e.response.json().get("error", "No details provided.")
                     error_message += f" - {error_details}"
                 except: pass
-            self.main_window.statusBar().showMessage(error_message, 5000)
+            logging.error(error_message)
             return None
 
     def register(self, username, password):

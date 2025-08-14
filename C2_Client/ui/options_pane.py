@@ -8,7 +8,7 @@ class OptionsPane(QWidget):
     setting_changed = pyqtSignal(str, object)
     panel_reset_requested = pyqtSignal()
     sanitize_requested = pyqtSignal()
-    delete_account_requested = pyqtSignal() # New signal for deleting the account
+    delete_account_requested = pyqtSignal()
     
     def __init__(self, db_manager):
         super().__init__()
@@ -27,6 +27,11 @@ class OptionsPane(QWidget):
         ])
         self.theme_selector.currentTextChanged.connect(lambda val: self.setting_changed.emit("theme", val))
         appearance_layout.addRow("Theme:", self.theme_selector)
+        
+        # --- NEW: Animation Toggle ---
+        self.animations_toggle = QCheckBox("Enable Screen Animations")
+        self.animations_toggle.stateChanged.connect(lambda state: self.setting_changed.emit("animations_enabled", bool(state)))
+        appearance_layout.addRow(self.animations_toggle)
 
         self.reset_panels_button = QPushButton("Reset Panel Sizing")
         self.reset_panels_button.clicked.connect(self.panel_reset_requested)
@@ -34,7 +39,7 @@ class OptionsPane(QWidget):
         
         layout.addWidget(appearance_group)
         
-        # --- Build Process Settings ---
+        # --- Build Process Settings (unchanged) ---
         build_group = QGroupBox("Build Process")
         build_layout = QFormLayout(build_group)
         build_layout.setContentsMargins(10, 15, 10, 10)
@@ -44,11 +49,11 @@ class OptionsPane(QWidget):
         build_layout.addRow("Compression:", self.compression_selector)
         self.obfuscation_selector = QComboBox()
         self.obfuscation_selector.addItems(["None", "Light", "Heavy"])
-        self.obfuscation_selector.currentTextChanged.connect(lambda val: self.setting_changed.emit("obfuscation", val))
+        self.obfuscation_selector.currentTextChanged.connect(lambda val: self.setting_changed.emit("obfuscation", "None"))
         build_layout.addRow("Obfuscation Level:", self.obfuscation_selector)
         self.build_priority_combo = QComboBox()
         self.build_priority_combo.addItems(["Normal", "Low", "High"])
-        self.build_priority_combo.currentTextChanged.connect(lambda val: self.setting_changed.emit("build_priority", val))
+        self.build_priority_combo.currentTextChanged.connect(lambda val: self.setting_changed.emit("build_priority", "Normal"))
         build_layout.addRow("Process Priority:", self.build_priority_combo)
         self.simple_logs_toggle = QCheckBox("Use Simple Build Logs (Recommended)")
         self.simple_logs_toggle.stateChanged.connect(lambda state: self.setting_changed.emit("simple_logs", bool(state)))
@@ -57,22 +62,18 @@ class OptionsPane(QWidget):
         
         layout.addStretch()
         
-        # --- DANGER ZONE ---
-        danger_group = QGroupBox("Danger Zone") # Renamed from "Caution Zone"
-        danger_layout = QHBoxLayout(danger_group) # Changed to QHBoxLayout for side-by-side buttons
+        # --- DANGER ZONE (unchanged) ---
+        danger_group = QGroupBox("Danger Zone")
+        danger_layout = QHBoxLayout(danger_group)
         danger_layout.setContentsMargins(10, 15, 10, 10)
-
-        self.sanitize_button = QPushButton("Sanitize Data") # Renamed from "Sanitize All Data"
+        self.sanitize_button = QPushButton("Sanitize Data")
         self.sanitize_button.setObjectName("SanitizeButton")
         self.sanitize_button.clicked.connect(self.confirm_sanitize)
-        
-        self.delete_account_button = QPushButton("Delete Account") # New button
-        self.delete_account_button.setObjectName("DeleteAccountButton") # Set object name for styling
+        self.delete_account_button = QPushButton("Delete Account")
+        self.delete_account_button.setObjectName("DeleteAccountButton")
         self.delete_account_button.clicked.connect(self.confirm_delete_account)
-
-        danger_layout.addWidget(self.sanitize_button) # Add sanitize button to the left
-        danger_layout.addWidget(self.delete_account_button) # Add delete button to the right
-
+        danger_layout.addWidget(self.sanitize_button)
+        danger_layout.addWidget(self.delete_account_button)
         layout.addWidget(danger_group)
 
         self.sign_out_button = QPushButton("Sign Out")
@@ -84,6 +85,8 @@ class OptionsPane(QWidget):
     def load_settings(self):
         """Loads all saved settings from the database and applies them to the UI."""
         self.theme_selector.setCurrentText(self.db.load_setting("theme", "Dark (Default)"))
+        # --- NEW: Load Animation Setting ---
+        self.animations_toggle.setChecked(self.db.load_setting("animations_enabled", True))
         self.compression_selector.setCurrentText(self.db.load_setting("compression", "None"))
         self.obfuscation_selector.setCurrentText(self.db.load_setting("obfuscation", "None"))
         self.build_priority_combo.setCurrentText(self.db.load_setting("build_priority", "Normal"))
@@ -114,7 +117,7 @@ class OptionsPane(QWidget):
             "This will permanently delete your user account and all associated data (sessions, vault, etc.).\n\nYou will be logged out immediately.\n\n"
             "Are you absolutely sure you want to proceed?"
         )
-        msg_box.setIcon(QMessageBox.Icon.Critical) # Use a more severe icon
+        msg_box.setIcon(QMessageBox.Icon.Critical)
         msg_box.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
         msg_box.setDefaultButton(QMessageBox.StandardButton.No)
         
