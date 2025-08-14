@@ -1,4 +1,4 @@
-# Requirements for C2_Server
+# Requirements for TetherC2 Relay Server
 Flask
 Flask-SocketIO
 Flask-Limiter
