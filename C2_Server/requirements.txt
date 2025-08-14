@@ -1,6 +1,7 @@
+# Requirements for C2_Server
 Flask
-gunicorn
-werkzeug
 Flask-SocketIO
 Flask-Limiter
+gunicorn
 psycopg2-binary
+werkzeug
