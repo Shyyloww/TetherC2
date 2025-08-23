@@ -12,6 +12,7 @@ from PyQt6.QtCore import pyqtSignal, Qt
 
 class BuilderPane(QWidget):
     build_requested = pyqtSignal(dict)
+    stop_build_requested = pyqtSignal() # ADDED: Signal to stop the build
 
     def __init__(self, db_manager):
         super().__init__()
@@ -115,7 +116,13 @@ class BuilderPane(QWidget):
 
         self.build_button = QPushButton("Build Payload"); self.build_button.clicked.connect(self.on_build); layout.addWidget(self.build_button)
         
-        self.build_log_pane = QWidget(); log_layout = QVBoxLayout(self.build_log_pane); self.build_log_output = QTextEdit(); self.build_log_output.setReadOnly(True); self.stop_build_button = QPushButton("Stop Build"); self.stop_build_button.setObjectName("StopBuildButton"); self.stop_build_button.setEnabled(False); self.back_to_builder_button = QPushButton("< Back to Builder"); self.back_to_builder_button.clicked.connect(self.show_builder_pane); self.back_to_builder_button.hide(); log_layout.addWidget(QLabel("<h3>BUILDING PAYLOAD...</h3>")); log_layout.addWidget(self.build_log_output, 1); log_layout.addWidget(self.stop_build_button); log_layout.addWidget(self.back_to_builder_button)
+        self.build_log_pane = QWidget(); log_layout = QVBoxLayout(self.build_log_pane); self.build_log_output = QTextEdit(); self.build_log_output.setReadOnly(True)
+        self.stop_build_button = QPushButton("Stop Build"); self.stop_build_button.setObjectName("StopBuildButton")
+        self.stop_build_button.setEnabled(False)
+        self.stop_build_button.hide() # Hide by default
+        self.stop_build_button.clicked.connect(self.stop_build_requested.emit) # Connect to signal
+        self.back_to_builder_button = QPushButton("< Back to Builder"); self.back_to_builder_button.clicked.connect(self.show_builder_pane); self.back_to_builder_button.hide()
+        log_layout.addWidget(QLabel("<h3>BUILDING PAYLOAD...</h3>")); log_layout.addWidget(self.build_log_output, 1); log_layout.addWidget(self.stop_build_button); log_layout.addWidget(self.back_to_builder_button)
         
         self.stack.addWidget(builder_scroll_area); self.stack.addWidget(self.build_log_pane)
         self.update_hydra_inputs(self.hydra_amount.value())
@@ -248,7 +255,11 @@ class BuilderPane(QWidget):
         if path: self.bind_file_path = path; self.bind_label.setText(os.path.basename(path))
 
     def show_build_log_pane(self):
-        self.build_log_output.clear(); self.back_to_builder_button.hide(); self.stop_build_button.setEnabled(True); self.stack.setCurrentIndex(1)
+        self.build_log_output.clear()
+        self.back_to_builder_button.hide()
+        self.stop_build_button.show()
+        self.stop_build_button.setEnabled(True)
+        self.stack.setCurrentIndex(1)
 
     def show_builder_pane(self):
         self.stack.setCurrentIndex(0)

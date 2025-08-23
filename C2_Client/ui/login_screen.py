@@ -29,7 +29,6 @@ class WelcomePage(QWidget):
     def __init__(self):
         super().__init__()
         self.setObjectName("WelcomeScreen")
-        self.discord_url = "https://discord.gg/BPYscjFkK3"
         layout = QVBoxLayout(self)
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.setSpacing(20)
@@ -39,31 +38,19 @@ class WelcomePage(QWidget):
         title_layout.setSpacing(0)
         title_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        self.welcome_label_top = ClickableLabel("Welcome to", self.discord_url)
+        self.welcome_label_top = QLabel("Welcome to")
         self.welcome_label_top.setObjectName("WelcomeSubLabelTop")
         
-        self.title_label = ClickableLabel("Tether C2", self.discord_url)
+        self.title_label = QLabel("Tether C2")
         self.title_label.setObjectName("TitleLabel")
 
-        self.welcome_label_bottom = ClickableLabel("By <b>ebowluh</b>", self.discord_url)
+        self.welcome_label_bottom = QLabel("By <b>ebowluh</b>")
         self.welcome_label_bottom.setObjectName("WelcomeSubLabelBottom")
         
         title_layout.addWidget(self.welcome_label_top, 0, Qt.AlignmentFlag.AlignCenter)
         title_layout.addWidget(self.title_label, 0, Qt.AlignmentFlag.AlignCenter)
         title_layout.addWidget(self.welcome_label_bottom, 0, Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(title_container)
-        
-        self._color_property = QColor("#d0d0d0") 
-        self.title_label.setStyleSheet(f"color: {self._color_property.name()};")
-        
-        self.animation = QPropertyAnimation(self, b"color")
-        self.animation.setDuration(10000)
-        self.animation.setLoopCount(-1)
-
-        colors = [QColor("#d0d0d0"), QColor("#c8d0d8"), QColor("#d0d0d0"), QColor("#d8d0c8"), QColor("#d0d0d0"), QColor("#d0c8d8"), QColor("#d0d0d0")]
-        step = 1.0 / (len(colors) - 1)
-        for i, color in enumerate(colors):
-            self.animation.setKeyValueAt(i * step, color)
         
         button_layout = QHBoxLayout()
         button_layout.setSpacing(15)
@@ -78,19 +65,6 @@ class WelcomePage(QWidget):
         button_layout.addWidget(go_to_create_button)
         layout.addLayout(button_layout)
 
-    def get_color(self):
-        return self._color_property
-
-    def set_color(self, color):
-        self._color_property = color
-        self.title_label.setStyleSheet(f"color: {self._color_property.name()};")
-
-    color = pyqtProperty(QColor, get_color, set_color)
-
-    def showEvent(self, event):
-        if self.animation.state() != QPropertyAnimation.State.Running:
-            self.animation.start()
-        super().showEvent(event)
 
 class LoginPage(QWidget):
     """The login screen with username, password, and a delayed loading indicator."""
@@ -110,6 +84,11 @@ class LoginPage(QWidget):
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.setSpacing(15)
         
+        title_label = QLabel("Tether C2")
+        title_label.setObjectName("TitleLabel")
+        title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(title_label)
+
         form_container = QWidget()
         form_container.setFixedWidth(675)
         form_layout = QVBoxLayout(form_container)
@@ -124,7 +103,6 @@ class LoginPage(QWidget):
         
         self.action_stack = QStackedWidget()
         self.login_button = QPushButton("Log In")
-        self.login_button.clicked.connect(self.handle_login)
         self.action_stack.addWidget(self.login_button)
 
         loading_widget = QWidget()
@@ -165,6 +143,11 @@ class LoginPage(QWidget):
         self.wait_timer = QTimer(self)
         self.wait_timer.setSingleShot(True)
         self.wait_timer.timeout.connect(self.show_awakening_spinner)
+        
+        # --- MODIFIED: Connect Enter key press to login action ---
+        self.login_button.clicked.connect(self.handle_login)
+        self.username_input.returnPressed.connect(self.handle_login)
+        self.password_input.returnPressed.connect(self.handle_login)
 
     def show_awakening_spinner(self):
         """Shows the spinner and 'Awakening...' text."""
@@ -186,14 +169,12 @@ class LoginPage(QWidget):
             self.feedback_label.setText("<font color='red'>Username and password are required.</font>")
             return
         
-        # Disable UI and start the 5-second timer
         self.login_button.setEnabled(False)
         self.username_input.setEnabled(False)
         self.password_input.setEnabled(False)
         self.feedback_label.clear()
         self.wait_timer.start(5000)
 
-        # Move the API call to a worker thread
         self.thread = QThread()
         self.worker = ApiWorker(self.api, "login", username, password)
         self.worker.moveToThread(self.thread)
@@ -211,7 +192,6 @@ class LoginPage(QWidget):
         
         if response and response.get("success"):
             if self.remember_me_checkbox.isChecked():
-                # Pass credentials to save
                 self.db.save_setting("auto_login_credentials", {"username": response.get("username"), "password": self.password_input.text()})
             else:
                 self.db.save_setting("auto_login_credentials", None)
@@ -239,6 +219,12 @@ class CreateAccountPage(QWidget):
 
         layout = QVBoxLayout(self)
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        
+        title_label = QLabel("Tether C2")
+        title_label.setObjectName("TitleLabel")
+        title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(title_label)
+
         form_container = QWidget()
         form_container.setFixedWidth(675)
         form_layout = QVBoxLayout(form_container)
@@ -252,7 +238,6 @@ class CreateAccountPage(QWidget):
         
         self.action_stack = QStackedWidget()
         self.create_button = QPushButton("Create Account")
-        self.create_button.clicked.connect(self.handle_create_account)
         self.action_stack.addWidget(self.create_button)
 
         loading_widget = QWidget()
@@ -297,6 +282,11 @@ class CreateAccountPage(QWidget):
         self.wait_timer = QTimer(self)
         self.wait_timer.setSingleShot(True)
         self.wait_timer.timeout.connect(self.show_awakening_spinner)
+        
+        # --- MODIFIED: Connect Enter key press to create account action ---
+        self.create_button.clicked.connect(self.handle_create_account)
+        self.new_username.returnPressed.connect(self.handle_create_account)
+        self.new_password.returnPressed.connect(self.handle_create_account)
 
     def show_awakening_spinner(self):
         """Shows the spinner and 'Awakening...' text."""

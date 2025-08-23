@@ -22,6 +22,8 @@ from builder import build_payload
 from config import RELAY_URL_FORMAT
 from themes import ThemeManager
 from api_client import ApiClient
+from ui.disclaimer_screen import DisclaimerScreen
+from ui.animated_spinner import AnimatedSpinner
 
 class FadeOverlay(QWidget):
     def __init__(self, parent=None):
@@ -37,6 +39,39 @@ class FadeOverlay(QWidget):
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.fillRect(self.rect(), self.color)
+
+class BaseLoadingScreen(QWidget):
+    """A base class for loading screens with a spinner and text."""
+    def __init__(self, text="Loading..."):
+        super().__init__()
+        self.setObjectName("LoadingScreen")
+        layout = QVBoxLayout(self)
+        layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.setSpacing(15)
+        self.spinner = AnimatedSpinner()
+        self.spinner.setFixedSize(48, 48)
+        self.status_label = QLabel(text)
+        self.status_label.setObjectName("LoadingStatusLabel")
+        self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self.spinner, 0, Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self.status_label)
+
+    def showEvent(self, event):
+        self.spinner.start_animation()
+        super().showEvent(event)
+
+    def hideEvent(self, event):
+        self.spinner.stop_animation()
+        super().hideEvent(event)
+
+class ThemeLoadingScreen(BaseLoadingScreen):
+    def __init__(self):
+        super().__init__("Applying Theme...")
+
+class SessionLoadingScreen(BaseLoadingScreen):
+    def __init__(self):
+        super().__init__("Loading Session Data...")
+
 
 class LocalSettingsManager:
     def __init__(self, db_file="tether_client_settings.db"):
@@ -81,6 +116,7 @@ class MainWindow(QMainWindow):
         self.api = ApiClient(self)
         self.current_user = None
         self.theme_manager = ThemeManager()
+        self._initial_launch_complete = False
 
         self.central_widget = QWidget()
         self.setCentralWidget(self.central_widget)
@@ -91,16 +127,21 @@ class MainWindow(QMainWindow):
         self.main_layout.addWidget(self.stack)
 
         # --- Screen Setup ---
+        self.disclaimer_screen = DisclaimerScreen()
         self.loading_screen = LoadingScreen()
+        self.theme_loading_screen = ThemeLoadingScreen()
+        self.session_loading_screen = SessionLoadingScreen()
         self.welcome_page = WelcomePage()
         self.login_page = LoginPage(self.api, self.db)
         self.create_account_page = CreateAccountPage(self.api)
+        self.stack.addWidget(self.disclaimer_screen)
         self.stack.addWidget(self.loading_screen)
+        self.stack.addWidget(self.theme_loading_screen)
+        self.stack.addWidget(self.session_loading_screen)
         self.stack.addWidget(self.welcome_page)
         self.stack.addWidget(self.login_page)
         self.stack.addWidget(self.create_account_page)
 
-        # --- Screen Hierarchy for Smart Transitions ---
         self.screen_layers = {
             self.welcome_page: 0,
             self.login_page: 1,
@@ -111,20 +152,18 @@ class MainWindow(QMainWindow):
         self.session_view = None
         self.info_dialog = InfoDialog(self)
 
-        # --- Animation attributes ---
         self.animation_group = None
         self.fade_animation = None
         self._animation_callback = None
         self.animation_placeholder = None
         self.fade_overlay = FadeOverlay(self.central_widget)
 
-        # --- Connect Signals to the main transition router ---
         self.welcome_page.login_requested.connect(lambda: self.transition_to_widget(self.login_page))
         self.welcome_page.create_requested.connect(lambda: self.transition_to_widget(self.create_account_page))
         self.login_page.create_account_requested.connect(lambda: self.transition_to_widget(self.create_account_page))
-        self.login_page.welcome_requested.connect(lambda: self.transition_to_widget(self.welcome_page)) # Will fade
+        self.login_page.welcome_requested.connect(lambda: self.transition_to_widget(self.welcome_page))
         self.create_account_page.login_requested.connect(lambda: self.transition_to_widget(self.login_page))
-        self.create_account_page.welcome_requested.connect(lambda: self.transition_to_widget(self.welcome_page)) # Will fade
+        self.create_account_page.welcome_requested.connect(lambda: self.transition_to_widget(self.welcome_page))
         self.login_page.login_successful.connect(self.show_dashboard_view)
 
         saved_theme = self.db.load_setting("theme", "Dark (Default)")
@@ -143,13 +182,23 @@ class MainWindow(QMainWindow):
             self.show_info_dialog()
         else:
             super().keyPressEvent(event)
+            
     def show_info_dialog(self):
         self.info_dialog.update_info(self)
         self.info_dialog.show(); self.info_dialog.raise_(); self.info_dialog.activateWindow()
+        
     def showEvent(self, event):
         super().showEvent(event)
-        self.stack.setCurrentWidget(self.loading_screen)
-        QTimer.singleShot(2000, self.attempt_auto_login)
+        if not self._initial_launch_complete:
+            self.stack.setCurrentWidget(self.disclaimer_screen)
+            QTimer.singleShot(1500, self.transition_to_loading)
+            
+    def transition_to_loading(self):
+        self._fade_to_widget(self.loading_screen, on_finished=self.start_login_process)
+
+    def start_login_process(self):
+        QTimer.singleShot(500, self.attempt_auto_login)
+        
     def attempt_auto_login(self):
         creds = self.db.load_setting("auto_login_credentials")
         if creds and "username" in creds and "password" in creds:
@@ -157,17 +206,16 @@ class MainWindow(QMainWindow):
             response = self.api.login(creds["username"], creds["password"])
             if response and response.get("success"):
                 self.show_dashboard_view(response.get("username"), response.get("assigned_line"), animate=False)
+                self._initial_launch_complete = True
                 return
         self.stack.setCurrentWidget(self.welcome_page)
+        self._initial_launch_complete = True
 
-    # --- MAIN TRANSITION ROUTER ---
     def transition_to_widget(self, new_widget, animate=True, on_finished=None):
         if (self.animation_group and self.animation_group.state() == QParallelAnimationGroup.State.Running) or \
            (self.fade_animation and self.fade_animation.state() == QPropertyAnimation.State.Running):
             return
-        
         if self.stack.currentWidget() == new_widget: return
-
         animations_enabled = self.db.load_setting("animations_enabled", True)
         if not animations_enabled or not animate:
             self.stack.setCurrentWidget(new_widget)
@@ -178,7 +226,6 @@ class MainWindow(QMainWindow):
         old_layer = self.screen_layers.get(old_widget, 0)
         new_layer = self.screen_layers.get(new_widget, 0)
 
-        # If going to a deeper layer, slide. Otherwise (back or cancel), fade.
         if new_layer > old_layer:
             self._slide_to_widget(old_widget, new_widget, on_finished)
         else:
@@ -187,7 +234,6 @@ class MainWindow(QMainWindow):
     def _fade_to_widget(self, new_widget, on_finished=None):
         self.fade_overlay.setVisible(True)
         self.fade_overlay.raise_()
-        
         self.fade_animation = QPropertyAnimation(self, b"fade_color")
         self.fade_animation.setDuration(250)
         self.fade_animation.setStartValue(QColor(0, 0, 0, 0))
@@ -213,16 +259,13 @@ class MainWindow(QMainWindow):
         self.animation_placeholder.setGeometry(old_widget.geometry())
         self.animation_placeholder.show(); self.animation_placeholder.raise_()
         self.stack.setCurrentWidget(new_widget)
-
         start_pos_new = QPoint(self.width(), 0)
         end_pos_old_placeholder = QPoint(-self.width(), 0)
         new_widget.move(start_pos_new)
-
         anim_new = QPropertyAnimation(new_widget, b"pos"); anim_new.setStartValue(start_pos_new)
         anim_new.setEndValue(QPoint(0, 0)); anim_new.setDuration(300); anim_new.setEasingCurve(QEasingCurve.Type.OutCubic)
         anim_old = QPropertyAnimation(self.animation_placeholder, b"pos"); anim_old.setStartValue(QPoint(0, 0))
         anim_old.setEndValue(end_pos_old_placeholder); anim_old.setDuration(300); anim_old.setEasingCurve(QEasingCurve.Type.OutCubic)
-
         self.animation_group = QParallelAnimationGroup(); self.animation_group.addAnimation(anim_new)
         self.animation_group.addAnimation(anim_old)
         self._animation_callback = on_finished
@@ -236,55 +279,58 @@ class MainWindow(QMainWindow):
 
     def apply_theme(self, theme_name):
         stylesheet = self.theme_manager.get_stylesheet(theme_name)
-        self.setStyleSheet(stylesheet)
-        if self.dashboard_view: self.dashboard_view.setStyleSheet(stylesheet)
-        if self.session_view: self.session_view.setStyleSheet(stylesheet)
+        QApplication.instance().setStyleSheet(stylesheet)
+        if self.dashboard_view:
+            self.dashboard_view.update_background_icon(theme_name)
 
     def show_dashboard_view(self, username, assigned_line, animate=True):
-        self.current_user = username
-        self.api.set_line(assigned_line)
-
+        self.current_user = username; self.api.set_line(assigned_line)
         if not self.dashboard_view:
             self.dashboard_view = DashboardWindow(self.api, self.db, self.current_user)
             self.session_view = SessionView(self.db)
-            self.stack.addWidget(self.dashboard_view)
-            self.stack.addWidget(self.session_view)
-            
+            self.stack.addWidget(self.dashboard_view); self.stack.addWidget(self.session_view)
             self.screen_layers[self.dashboard_view] = 2
             self.screen_layers[self.session_view] = 3
-
             self.dashboard_view.sign_out_requested.connect(self.handle_sign_out)
             self.dashboard_view.setting_changed.connect(self.handle_setting_changed)
             self.dashboard_view.build_requested.connect(self.start_build)
+            self.dashboard_view.stop_build_requested.connect(self.stop_build) # Connect stop build
             self.dashboard_view.session_interact_requested.connect(self.open_session_view)
-            self.session_view.back_requested.connect(lambda: self.transition_to_widget(self.dashboard_view)) # Will fade
+            self.session_view.back_requested.connect(lambda: self.transition_to_widget(self.dashboard_view))
             self.session_view.task_requested.connect(self.dashboard_view.send_task_from_session)
             self.dashboard_view.data_updated_for_session.connect(self.session_view.handle_command_response)
-
         self.transition_to_widget(self.dashboard_view, animate=animate)
         logging.info(f"Logged in as {username}. Using Line #{assigned_line}")
 
     def open_session_view(self, session_id, session_data, status):
-        self.session_view.load_session(session_id, session_data, status)
-        self.transition_to_widget(self.session_view)
+        def finish_loading():
+            self.session_view.load_session(session_id, session_data, status)
+            self._fade_to_widget(self.session_view)
+        def start_timer():
+            QTimer.singleShot(500, finish_loading)
+        self._fade_to_widget(self.session_loading_screen, on_finished=start_timer)
 
     def handle_setting_changed(self, key, value):
         self.db.save_setting(key, value)
-        if key == "theme": self.apply_theme(value)
+        if key == "theme":
+            previous_widget = self.stack.currentWidget()
+            def apply_and_return():
+                self.apply_theme(value)
+                self._fade_to_widget(previous_widget)
+            def start_timer():
+                QTimer.singleShot(500, apply_and_return)
+            self._fade_to_widget(self.theme_loading_screen, on_finished=start_timer)
 
     def handle_sign_out(self):
         if self.dashboard_view: self.dashboard_view.stop_polling()
         self.db.save_setting("auto_login_credentials", None)
         self.login_page.clear_fields()
-
         def cleanup_dashboard():
-            logging.debug("Cleanup function called after sign-out animation.")
             self.screen_layers.pop(self.dashboard_view, None); self.screen_layers.pop(self.session_view, None)
             if self.dashboard_view: self.stack.removeWidget(self.dashboard_view); self.dashboard_view.deleteLater(); self.dashboard_view = None
             if self.session_view: self.stack.removeWidget(self.session_view); self.session_view.deleteLater(); self.session_view = None
             self.current_user = None; self.api.base_url = None; self.api.line_number = None
-
-        self.transition_to_widget(self.welcome_page, on_finished=cleanup_dashboard) # Will fade
+        self.transition_to_widget(self.welcome_page, on_finished=cleanup_dashboard)
         logging.info("Signed out.")
 
     def start_build(self, settings):
@@ -302,29 +348,44 @@ class MainWindow(QMainWindow):
     def stop_build(self):
         if hasattr(self, 'build_thread') and self.build_thread.isRunning():
             self.build_thread.stop()
+            self.dashboard_view.builder_pane.build_log_output.append("\n[!] BUILD STOPPED BY USER.")
 
     def on_build_finished(self):
         if self.dashboard_view:
             self.dashboard_view.builder_pane.build_button.setEnabled(True)
             self.dashboard_view.builder_pane.stop_build_button.setEnabled(False)
+            self.dashboard_view.builder_pane.stop_build_button.hide() # Hide when done
             self.dashboard_view.builder_pane.back_to_builder_button.show()
-
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
+    settings_manager = LocalSettingsManager()
+    saved_theme = settings_manager.load_setting("theme", "Dark (Default)")
+    stylesheet = ThemeManager.get_stylesheet(saved_theme)
+    app.setStyleSheet(stylesheet)
     log_handler = QtLogHandler()
     log_format = logging.Formatter('%(asctime)s [%(levelname)s] - %(message)s', datefmt='%H:%M:%S')
     log_handler.setFormatter(log_format)
     logging.getLogger().addHandler(log_handler)
     logging.getLogger().setLevel(logging.DEBUG)
-    if updater.check_for_updates(): sys.exit(0)
+
+    def proper_shutdown():
+        logging.info("Application is shutting down.")
+        logging.getLogger().removeHandler(log_handler)
+        logging.shutdown()
+    app.aboutToQuit.connect(proper_shutdown)
+
+    if updater.check_for_updates():
+        sys.exit(0)
+    
     splash = SplashScreen()
-    splash.setStyleSheet(ThemeManager.get_stylesheet("Dark (Default)"))
     screen_geometry = app.primaryScreen().geometry()
     splash.move((screen_geometry.width() - splash.width()) // 2, (screen_geometry.height() - splash.height()) // 2)
     splash.show(); splash.start_animation(); splash.fade_in()
+    
     window = MainWindow()
     log_handler.log_signal.connect(window.info_dialog.log_output.append)
+    
     def close_splash_and_show_main():
         splash.fade_out()
         splash.fade_out_animation.finished.connect(lambda: (

