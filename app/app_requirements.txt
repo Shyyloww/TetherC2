@@ -1,3 +1,5 @@
 # requirements.txt
 supabase
 python-dotenv
+Flask
+gunicorn
